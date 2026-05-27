@@ -1,0 +1,15 @@
+# Build output
+/vo
+/bin/
+/dist/
+
+# Temporary workspace
+/tmp/
+
+# Go artifacts
+*.test
+*.out
+coverage.out
+
+# IDE/OS noise
+.DS_Store
