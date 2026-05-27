@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -227,6 +228,102 @@ func TestRunNoArgsShowsHelpBannerAndVersion(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "_    __") {
 		t.Fatalf("expected figlet banner in help output, got %q", stderr)
+	}
+}
+
+func TestRunTreeJSONSuccessAndDeterminism(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("vault/index.md", "---\ntitle: Home\n---\n[[A]] [[missing]]")
+	write("vault/a.md", "---\ntitle: A\n---\n")
+	target := filepath.Join(root, "vault", "index.md")
+
+	code1, stdout1, stderr1 := runAndCapture([]string{"--tree", "--format", "json", "--depth", "2", target})
+	if code1 != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code1, stderr1)
+	}
+	if strings.TrimSpace(stderr1) != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr1)
+	}
+	var payload1 struct {
+		SchemaVersion string `json:"schema_version"`
+		Root          struct {
+			ID       string `json:"id"`
+			Label    string `json:"label"`
+			Path     string `json:"path"`
+			Dangling bool   `json:"dangling"`
+			Children []struct {
+				ID       string `json:"id"`
+				Label    string `json:"label"`
+				Path     string `json:"path"`
+				Dangling bool   `json:"dangling"`
+				Children []any  `json:"children"`
+			} `json:"children"`
+		} `json:"root"`
+	}
+	if err := json.Unmarshal([]byte(stdout1), &payload1); err != nil {
+		t.Fatalf("expected valid json, got err=%v body=%q", err, stdout1)
+	}
+	if payload1.SchemaVersion != "1.0.0" {
+		t.Fatalf("expected schema_version=1.0.0, got %q", payload1.SchemaVersion)
+	}
+	if payload1.Root.Label != "Home" || !filepath.IsAbs(payload1.Root.Path) || payload1.Root.Dangling {
+		t.Fatalf("unexpected root node: %+v", payload1.Root)
+	}
+	if len(payload1.Root.Children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(payload1.Root.Children))
+	}
+	if !payload1.Root.Children[1].Dangling || payload1.Root.Children[1].Path != "" {
+		t.Fatalf("expected dangling child with empty path, got %+v", payload1.Root.Children[1])
+	}
+
+	code2, stdout2, stderr2 := runAndCapture([]string{"--tree", "--format", "json", "--depth", "2", target})
+	if code2 != 0 || strings.TrimSpace(stderr2) != "" {
+		t.Fatalf("second run failed code=%d stderr=%q", code2, stderr2)
+	}
+	if stdout1 != stdout2 {
+		t.Fatalf("expected deterministic json output, got\n1=%q\n2=%q", stdout1, stdout2)
+	}
+}
+
+func TestRunTreeJSONErrorsStructured(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "index.md")
+	if err := os.WriteFile(target, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runAndCapture([]string{"--format", "json", target})
+	if code != 2 {
+		t.Fatalf("expected exit=2 got %d", code)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Error         struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("expected valid json error, got err=%v body=%q", err, stdout)
+	}
+	if payload.SchemaVersion != "1.0.0" || payload.Error.Code == "" || payload.Error.Message == "" {
+		t.Fatalf("unexpected error payload: %+v", payload)
+	}
+	if strings.Contains(stdout, "\"root\"") {
+		t.Fatalf("unexpected root in error payload: %q", stdout)
 	}
 }
 

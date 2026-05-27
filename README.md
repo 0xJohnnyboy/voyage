@@ -15,7 +15,7 @@ Running `vo` without arguments shows help (`-h`) with the Voyage banner and curr
 Options:
 - `-v`, `--version` print version and exit
 - `-s`, `--sort` `discovery|alpha` (default: `discovery`)
-- `-f`, `--format` `simple|detailed` (default: `simple`)
+- `-f`, `--format` `simple|detailed|json` (default: `simple`)
 - `-l`, `--long` alias for `--format detailed`
 - `-d`, `--dangling` show unresolved links (default: `true`)
 - `-D`, `--no-dangling` hide unresolved links
@@ -23,6 +23,7 @@ Options:
 - `-t`, `--tree` render outgoing relations as a tree (overrides list formatting)
 - `-n`, `--depth` tree depth (default: `1`, valid only with `--tree`)
 - `-c`, `--color` `auto|always|never` (default: `auto`)
+- `--format json` is valid only with `--tree`
 
 ## Examples
 
@@ -33,9 +34,69 @@ vo -l -D notes/index.md
 vo --format detailed --dangling notes/index.md
 vo -t -n 3 notes/index.md
 vo -t --long --no-dangling notes/index.md
+vo -t -n 3 --format json notes/index.md
 vo --color always notes/index.md
 vo
 ```
+
+## JSON Tree Contract (V1)
+
+Machine-oriented JSON output is available for tree mode:
+
+```bash
+vo --format json --tree --depth <N> <path-note.md>
+```
+
+Success payload:
+
+```json
+{
+  "schema_version": "1.0.0",
+  "root": {
+    "id": "/abs/path/to/index.md",
+    "label": "Home",
+    "path": "/abs/path/to/index.md",
+    "dangling": false,
+    "children": [
+      {
+        "id": "/abs/path/to/a.md",
+        "label": "A",
+        "path": "/abs/path/to/a.md",
+        "dangling": false,
+        "children": []
+      },
+      {
+        "id": "dangling:Missing Note",
+        "label": "Missing Note",
+        "path": "",
+        "dangling": true,
+        "children": []
+      }
+    ]
+  }
+}
+```
+
+Node contract:
+- `id` deterministic string identifier
+- `label` display label
+- `path` absolute path for resolved notes, empty string for dangling
+- `dangling` boolean (`true` for unresolved wikilinks)
+- `children` array of nodes
+
+Error payload (`--format json`):
+
+```json
+{
+  "schema_version": "1.0.0",
+  "error": {
+    "code": "json_requires_tree",
+    "message": "--format json is only valid with --tree"
+  }
+}
+```
+
+On error, Voyage returns a non-zero exit code.
 
 ## Install
 

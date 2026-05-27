@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,21 @@ type QueryOptions struct {
 	Depth            int
 	DanglingPrefix   string
 	ColorizeDangling func(string) string
+}
+
+const TreeJSONSchemaVersion = "1.0.0"
+
+type TreeJSONNode struct {
+	ID       string         `json:"id"`
+	Label    string         `json:"label"`
+	Path     string         `json:"path"`
+	Dangling bool           `json:"dangling"`
+	Children []TreeJSONNode `json:"children"`
+}
+
+type TreeJSONSuccess struct {
+	SchemaVersion string       `json:"schema_version"`
+	Root          TreeJSONNode `json:"root"`
 }
 
 func NewQuery(repo ports.NoteRepository, strategy ports.RelationStrategy, formatter ports.OutputFormatter) QueryService {
@@ -91,6 +107,100 @@ func (s QueryService) renderTree(root *domain.Note, index *domain.GraphIndex, op
 		return "", err
 	}
 	return b.String(), nil
+}
+
+func (s QueryService) RenderTreeJSON(index *domain.GraphIndex, targetPath string, opts QueryOptions) (string, error) {
+	targetID := filepath.Clean(targetPath)
+	note := index.Notes[targetID]
+	if note == nil {
+		return "", fmt.Errorf("target note not found in index: %s", targetPath)
+	}
+	if opts.Depth < 1 {
+		return "", fmt.Errorf("depth must be >= 1")
+	}
+
+	root, err := s.buildTreeJSONNode(note, index, opts, 0, map[string]bool{note.ID: true})
+	if err != nil {
+		return "", err
+	}
+	out, err := json.Marshal(TreeJSONSuccess{
+		SchemaVersion: TreeJSONSchemaVersion,
+		Root:          root,
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(out) + "\n", nil
+}
+
+func (s QueryService) buildTreeJSONNode(note *domain.Note, index *domain.GraphIndex, opts QueryOptions, level int, visited map[string]bool) (TreeJSONNode, error) {
+	node := TreeJSONNode{
+		ID:       note.ID,
+		Label:    noteLabel(note),
+		Path:     note.Path,
+		Dangling: false,
+		Children: []TreeJSONNode{},
+	}
+	if level >= opts.Depth {
+		return node, nil
+	}
+
+	rels := s.strategy.Related(note, index)
+	resolved := make([]*domain.Note, 0, len(rels))
+	dangling := make([]string, 0, len(rels))
+	for _, r := range rels {
+		if r.Kind == "dangling" {
+			if opts.ShowDangling {
+				dangling = append(dangling, r.Raw)
+			}
+			continue
+		}
+		n := index.Notes[r.ID]
+		if n != nil {
+			resolved = append(resolved, n)
+		}
+	}
+
+	if opts.Sort == "alpha" {
+		sort.SliceStable(resolved, func(i, j int) bool {
+			return strings.ToLower(noteLabel(resolved[i])) < strings.ToLower(noteLabel(resolved[j]))
+		})
+		sort.SliceStable(dangling, func(i, j int) bool {
+			return strings.ToLower(dangling[i]) < strings.ToLower(dangling[j])
+		})
+	}
+
+	for _, child := range resolved {
+		childNode := TreeJSONNode{
+			ID:       child.ID,
+			Label:    noteLabel(child),
+			Path:     child.Path,
+			Dangling: false,
+			Children: []TreeJSONNode{},
+		}
+		if !visited[child.ID] {
+			visited[child.ID] = true
+			desc, err := s.buildTreeJSONNode(child, index, opts, level+1, visited)
+			delete(visited, child.ID)
+			if err != nil {
+				return TreeJSONNode{}, err
+			}
+			childNode.Children = desc.Children
+		}
+		node.Children = append(node.Children, childNode)
+	}
+
+	for _, raw := range dangling {
+		node.Children = append(node.Children, TreeJSONNode{
+			ID:       "dangling:" + raw,
+			Label:    raw,
+			Path:     "",
+			Dangling: true,
+			Children: []TreeJSONNode{},
+		})
+	}
+
+	return node, nil
 }
 
 func (s QueryService) renderTreeChildren(b *strings.Builder, parent *domain.Note, index *domain.GraphIndex, opts QueryOptions, level int, prefix string, visited map[string]bool) error {

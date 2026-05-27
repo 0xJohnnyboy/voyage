@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -24,8 +25,8 @@ func Run(args []string) int {
 	sortOpt := fsFlags.String("sort", "discovery", "sort order: discovery|alpha")
 	fsFlags.StringVar(sortOpt, "s", "discovery", "sort order: discovery|alpha")
 
-	formatOpt := fsFlags.String("format", "simple", "output format: simple|detailed")
-	fsFlags.StringVar(formatOpt, "f", "simple", "output format: simple|detailed")
+	formatOpt := fsFlags.String("format", "simple", "output format: simple|detailed|json")
+	fsFlags.StringVar(formatOpt, "f", "simple", "output format: simple|detailed|json")
 	longFormat := fsFlags.Bool("long", false, "alias for --format detailed")
 	fsFlags.BoolVar(longFormat, "l", false, "alias for --format detailed")
 
@@ -68,37 +69,33 @@ func Run(args []string) int {
 	}
 	depthFlagSet := hasDepthFlag(args)
 	if depthFlagSet && !*treeView {
-		fmt.Fprintln(os.Stderr, "--depth is only valid with --tree")
-		return 2
+		return cliErr(*formatOpt == "json", "depth_requires_tree", "--depth is only valid with --tree", 2)
 	}
 	if *treeView && *depth < 1 {
-		fmt.Fprintln(os.Stderr, "--depth must be >= 1")
-		return 2
+		return cliErr(*formatOpt == "json", "invalid_depth", "--depth must be >= 1", 2)
 	}
 	if fsFlags.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>")
+		fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>")
 		return 2
 	}
 	if *sortOpt != "discovery" && *sortOpt != "alpha" {
-		fmt.Fprintln(os.Stderr, "invalid --sort value")
-		return 2
+		return cliErr(*formatOpt == "json", "invalid_sort", "invalid --sort value", 2)
 	}
-	if *formatOpt != "simple" && *formatOpt != "detailed" {
-		fmt.Fprintln(os.Stderr, "invalid --format value")
-		return 2
+	if *formatOpt != "simple" && *formatOpt != "detailed" && *formatOpt != "json" {
+		return cliErr(*formatOpt == "json", "invalid_format", "invalid --format value", 2)
+	}
+	if *formatOpt == "json" && !*treeView {
+		return cliErr(true, "json_requires_tree", "--format json is only valid with --tree", 2)
 	}
 	if *colorOpt != "auto" && *colorOpt != "always" && *colorOpt != "never" {
-		fmt.Fprintln(os.Stderr, "invalid --color value")
-		return 2
+		return cliErr(*formatOpt == "json", "invalid_color", "invalid --color value", 2)
 	}
 	target := filepath.Clean(fsFlags.Arg(0))
 	if !strings.EqualFold(filepath.Ext(target), ".md") {
-		fmt.Fprintln(os.Stderr, "target must be a markdown file (.md)")
-		return 2
+		return cliErr(*formatOpt == "json", "invalid_target_extension", "target must be a markdown file (.md)", 2)
 	}
 	if _, err := os.Stat(target); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return cliErr(*formatOpt == "json", "target_not_found", err.Error(), 2)
 	}
 
 	repo := fs.LocalRepo{}
@@ -107,8 +104,7 @@ func Run(args []string) int {
 	root := filepath.Dir(target)
 	idx, err := indexer.Build(root)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return cliErr(*formatOpt == "json", "index_build_failed", err.Error(), 1)
 	}
 	useColor := shouldUseColor(*colorOpt)
 	colorizeDangling := func(s string) string {
@@ -121,7 +117,7 @@ func Run(args []string) int {
 		DanglingPrefix:   "⚠",
 		ColorizeDangling: colorizeDangling,
 	}))
-	out, err := query.Render(idx, target, app.QueryOptions{
+	opts := app.QueryOptions{
 		Sort:             *sortOpt,
 		ShowDangling:     *showDangling,
 		Detailed:         *formatOpt == "detailed",
@@ -129,19 +125,50 @@ func Run(args []string) int {
 		Depth:            *depth,
 		DanglingPrefix:   "⚠",
 		ColorizeDangling: colorizeDangling,
-	})
+	}
+	var out string
+	if *formatOpt == "json" {
+		out, err = query.RenderTreeJSON(idx, target, opts)
+	} else {
+		out, err = query.Render(idx, target, opts)
+	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return cliErr(*formatOpt == "json", "query_failed", err.Error(), 1)
 	}
 	fmt.Print(out)
 	return 0
 }
 
+type jsonErrorPayload struct {
+	SchemaVersion string `json:"schema_version"`
+	Error         struct {
+		Code    string                 `json:"code"`
+		Message string                 `json:"message"`
+		Details map[string]interface{} `json:"details,omitempty"`
+	} `json:"error"`
+}
+
+func cliErr(asJSON bool, code, msg string, exitCode int) int {
+	if !asJSON {
+		fmt.Fprintln(os.Stderr, msg)
+		return exitCode
+	}
+	payload := jsonErrorPayload{SchemaVersion: app.TreeJSONSchemaVersion}
+	payload.Error.Code = code
+	payload.Error.Message = msg
+	b, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, msg)
+		return exitCode
+	}
+	fmt.Fprintln(os.Stdout, string(b))
+	return exitCode
+}
+
 func printHelp(fsFlags *flag.FlagSet) {
 	fmt.Fprint(os.Stderr, "\n _    __\n| |  / /___  __  ______ _____ ____\n| | / / __ \\/ / / / __ `/ __ `/ _ \\\n| |/ / /_/ / /_/ / /_/ / /_/ /  __/\n|___/\\____/\\__, /\\__,_/\\__, /\\___/\n          /____/      /____/\n\n")
 	fmt.Fprintf(os.Stderr, "version %s\n\n", Version)
-	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
+	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
 	fmt.Fprintln(os.Stderr)
 	fsFlags.PrintDefaults()
 }
