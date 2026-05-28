@@ -16,6 +16,13 @@ import (
 	"voyage/internal/app"
 )
 
+const (
+	ansiReset          = "\x1b[0m"
+	ansiColorDangling  = "\x1b[38;5;208m"
+	ansiColorCycleMark = "\x1b[38;5;39m"
+	asciiBanner        = "\n _    __\n| |  / /___  __  ______ _____ ____\n| | / / __ \\/ / / / __ `/ __ `/ _ \\\n| |/ / /_/ / /_/ / /_/ / /_/ /  __/\n|___/\\____/\\__, /\\__,_/\\__, /\\___/\n          /____/      /____/\n\n"
+)
+
 func Run(args []string) int {
 	fsFlags := flag.NewFlagSet("vo", flag.ContinueOnError)
 	fsFlags.SetOutput(os.Stderr)
@@ -39,6 +46,8 @@ func Run(args []string) int {
 	fsFlags.StringVar(logLevel, "L", "warn", "log level: silent|warn|debug")
 	treeView := fsFlags.Bool("tree", false, "render relations as a tree")
 	fsFlags.BoolVar(treeView, "t", false, "render relations as a tree")
+	modeOpt := fsFlags.String("mode", "links", "relation mode: links|tags|categories")
+	fsFlags.StringVar(modeOpt, "m", "links", "relation mode: links|tags|categories")
 	depth := fsFlags.Int("depth", 1, "tree depth (>=1, tree mode only)")
 	fsFlags.IntVar(depth, "n", 1, "tree depth (>=1, tree mode only)")
 	colorOpt := fsFlags.String("color", "auto", "color mode: auto|always|never")
@@ -48,7 +57,7 @@ func Run(args []string) int {
 	fsFlags.BoolVar(showVersion, "version", false, "print version")
 
 	if len(args) == 0 {
-		printHelp(fsFlags)
+		printShortUsage()
 		return 0
 	}
 	if err := fsFlags.Parse(args); err != nil {
@@ -75,11 +84,14 @@ func Run(args []string) int {
 		return cliErr(*formatOpt == "json", "invalid_depth", "--depth must be >= 1", 2)
 	}
 	if fsFlags.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>")
+		fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>")
 		return 2
 	}
 	if *sortOpt != "discovery" && *sortOpt != "alpha" {
 		return cliErr(*formatOpt == "json", "invalid_sort", "invalid --sort value", 2)
+	}
+	if *modeOpt != "links" && *modeOpt != "tags" && *modeOpt != "categories" {
+		return cliErr(*formatOpt == "json", "invalid_mode", "invalid --mode value", 2)
 	}
 	if *formatOpt != "simple" && *formatOpt != "detailed" && *formatOpt != "json" {
 		return cliErr(*formatOpt == "json", "invalid_format", "invalid --format value", 2)
@@ -111,7 +123,13 @@ func Run(args []string) int {
 		if !useColor {
 			return s
 		}
-		return "\x1b[38;5;208m" + s + "\x1b[0m"
+		return ansiColorDangling + s + ansiReset
+	}
+	colorizeCycle := func(s string) string {
+		if !useColor {
+			return s
+		}
+		return ansiColorCycleMark + s + ansiReset
 	}
 	query := app.NewQuery(repo, strategy.Outgoing{}, output.NewTextFormatter(output.TextFormatterConfig{
 		DanglingPrefix:   "⚠",
@@ -123,8 +141,11 @@ func Run(args []string) int {
 		Detailed:         *formatOpt == "detailed",
 		Tree:             *treeView,
 		Depth:            *depth,
+		Mode:             *modeOpt,
 		DanglingPrefix:   "⚠",
+		CycleMarker:      "↺",
 		ColorizeDangling: colorizeDangling,
+		ColorizeCycle:    colorizeCycle,
 	}
 	var out string
 	if *formatOpt == "json" {
@@ -153,7 +174,7 @@ func cliErr(asJSON bool, code, msg string, exitCode int) int {
 		fmt.Fprintln(os.Stderr, msg)
 		return exitCode
 	}
-	payload := jsonErrorPayload{SchemaVersion: app.TreeJSONSchemaVersion}
+	payload := jsonErrorPayload{SchemaVersion: app.ErrorJSONSchemaVersion}
 	payload.Error.Code = code
 	payload.Error.Message = msg
 	b, err := json.Marshal(payload)
@@ -166,11 +187,18 @@ func cliErr(asJSON bool, code, msg string, exitCode int) int {
 }
 
 func printHelp(fsFlags *flag.FlagSet) {
-	fmt.Fprint(os.Stderr, "\n _    __\n| |  / /___  __  ______ _____ ____\n| | / / __ \\/ / / / __ `/ __ `/ _ \\\n| |/ / /_/ / /_/ / /_/ / /_/ /  __/\n|___/\\____/\\__, /\\__,_/\\__, /\\___/\n          /____/      /____/\n\n")
+	fmt.Fprint(os.Stderr, asciiBanner)
 	fmt.Fprintf(os.Stderr, "version %s\n\n", Version)
-	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
+	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
 	fmt.Fprintln(os.Stderr)
 	fsFlags.PrintDefaults()
+}
+
+func printShortUsage() {
+	fmt.Fprint(os.Stderr, asciiBanner)
+	fmt.Fprintf(os.Stderr, "vo %s\n", Version)
+	fmt.Fprintln(os.Stderr, "usage: vo [options] <path-note.md>")
+	fmt.Fprintln(os.Stderr, "run `vo -h` for full help")
 }
 
 func shouldUseColor(mode string) bool {

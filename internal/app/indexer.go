@@ -41,7 +41,14 @@ func (s IndexerService) Build(root string) (*domain.GraphIndex, error) {
 			parsed = parseLinksOnly(content)
 		}
 		id := filepath.Clean(p)
-		n := &domain.Note{ID: id, Title: parsed.Title, Path: p, RawLinks: parsed.Links, Tags: parsed.Tags}
+		n := &domain.Note{
+			ID:         id,
+			Title:      parsed.Title,
+			Path:       p,
+			RawLinks:   parsed.Links,
+			Tags:       sanitizeTerms(parsed.Tags),
+			Categories: sanitizeTerms(parsed.Categories),
+		}
 		idx.Notes[id] = n
 		idx.Ordered = append(idx.Ordered, id)
 		if n.Title != "" {
@@ -89,4 +96,18 @@ func resolve(raw string, titleIndex, baseIndex map[string][]string) string {
 
 func norm(v string) string {
 	return strings.ToLower(strings.TrimSpace(v))
+}
+
+func sanitizeTerms(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, v := range values {
+		n := norm(v)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, strings.TrimSpace(v))
+	}
+	return out
 }

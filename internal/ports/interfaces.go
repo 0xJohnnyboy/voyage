@@ -20,9 +20,10 @@ type FileInfo interface {
 }
 
 type ParsedNote struct {
-	Title string
-	Tags  []string
-	Links []string
+	Title      string
+	Tags       []string
+	Categories []string
+	Links      []string
 }
 
 type NoteParser interface {

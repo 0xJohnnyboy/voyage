@@ -132,7 +132,7 @@ func TestRunTreeDepthAndCycle(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
 	}
-	for _, want := range []string{"Home", "A", "B", "(cycle)", "⚠ missing"} {
+	for _, want := range []string{"Home", "A", "B", "↺", "⚠ missing"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected tree output to contain %q, got %q", want, stdout)
 		}
@@ -208,7 +208,7 @@ func TestRunColorAlwaysOnDangling(t *testing.T) {
 	}
 }
 
-func TestRunNoArgsShowsHelpBannerAndVersion(t *testing.T) {
+func TestRunNoArgsShowsShortUsageAndVersion(t *testing.T) {
 	prev := Version
 	Version = "0.3.0-test"
 	t.Cleanup(func() { Version = prev })
@@ -220,14 +220,17 @@ func TestRunNoArgsShowsHelpBannerAndVersion(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("expected no stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "version 0.3.0-test") {
+	if !strings.Contains(stderr, "vo 0.3.0-test") {
 		t.Fatalf("expected version in help output, got %q", stderr)
 	}
-	if !strings.Contains(stderr, "usage: vo") {
+	if !strings.Contains(stderr, "usage: vo [options] <path-note.md>") {
 		t.Fatalf("expected usage in help output, got %q", stderr)
 	}
+	if !strings.Contains(stderr, "run `vo -h` for full help") {
+		t.Fatalf("expected short-help hint, got %q", stderr)
+	}
 	if !strings.Contains(stderr, "_    __") {
-		t.Fatalf("expected figlet banner in help output, got %q", stderr)
+		t.Fatalf("expected figlet banner in short output, got %q", stderr)
 	}
 }
 
@@ -256,16 +259,19 @@ func TestRunTreeJSONSuccessAndDeterminism(t *testing.T) {
 	}
 	var payload1 struct {
 		SchemaVersion string `json:"schema_version"`
+		Mode          string `json:"mode"`
 		Root          struct {
 			ID       string `json:"id"`
 			Label    string `json:"label"`
 			Path     string `json:"path"`
 			Dangling bool   `json:"dangling"`
+			NodeKind string `json:"node_kind"`
 			Children []struct {
 				ID       string `json:"id"`
 				Label    string `json:"label"`
 				Path     string `json:"path"`
 				Dangling bool   `json:"dangling"`
+				NodeKind string `json:"node_kind"`
 				Children []any  `json:"children"`
 			} `json:"children"`
 		} `json:"root"`
@@ -273,10 +279,13 @@ func TestRunTreeJSONSuccessAndDeterminism(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout1), &payload1); err != nil {
 		t.Fatalf("expected valid json, got err=%v body=%q", err, stdout1)
 	}
-	if payload1.SchemaVersion != "1.0.0" {
-		t.Fatalf("expected schema_version=1.0.0, got %q", payload1.SchemaVersion)
+	if payload1.SchemaVersion != "1.1.0" {
+		t.Fatalf("expected schema_version=1.1.0, got %q", payload1.SchemaVersion)
 	}
-	if payload1.Root.Label != "Home" || !filepath.IsAbs(payload1.Root.Path) || payload1.Root.Dangling {
+	if payload1.Mode != "links" {
+		t.Fatalf("expected mode=links, got %q", payload1.Mode)
+	}
+	if payload1.Root.Label != "Home" || !filepath.IsAbs(payload1.Root.Path) || payload1.Root.Dangling || payload1.Root.NodeKind != "note" {
 		t.Fatalf("unexpected root node: %+v", payload1.Root)
 	}
 	if len(payload1.Root.Children) != 2 {
@@ -292,6 +301,60 @@ func TestRunTreeJSONSuccessAndDeterminism(t *testing.T) {
 	}
 	if stdout1 != stdout2 {
 		t.Fatalf("expected deterministic json output, got\n1=%q\n2=%q", stdout1, stdout2)
+	}
+}
+
+func TestRunModeTagsTreeDepthAndJSONKinds(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("vault/index.md", "---\ntitle: Home\ntags: [work]\n---\n")
+	write("vault/a.md", "---\ntitle: A\ntags: [work, alpha]\n---\n")
+	write("vault/b.md", "---\ntitle: B\ntags: [alpha]\n---\n")
+	target := filepath.Join(root, "vault", "index.md")
+
+	code, stdout, stderr := runAndCapture([]string{"--mode", "tags", "--tree", "--depth", "1", target})
+	if code != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "work") || !strings.Contains(stdout, "Home") || !strings.Contains(stdout, "A") {
+		t.Fatalf("unexpected tags tree output: %q", stdout)
+	}
+	if strings.Contains(stdout, "alpha") {
+		t.Fatalf("depth=1 should not recurse to second attribute hop, got %q", stdout)
+	}
+
+	code, stdout, stderr = runAndCapture([]string{"--mode", "tags", "--tree", "--depth", "1", "--format", "json", target})
+	if code != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
+	}
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Mode          string `json:"mode"`
+		Root          struct {
+			NodeKind string `json:"node_kind"`
+			Children []struct {
+				NodeKind string `json:"node_kind"`
+				Path     string `json:"path"`
+			} `json:"children"`
+		} `json:"root"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("expected valid json, got err=%v body=%q", err, stdout)
+	}
+	if payload.SchemaVersion != "1.1.0" || payload.Mode != "tags" || payload.Root.NodeKind != "note" {
+		t.Fatalf("unexpected payload header: %+v", payload)
+	}
+	if len(payload.Root.Children) == 0 || payload.Root.Children[0].NodeKind != "tag" || payload.Root.Children[0].Path != "" {
+		t.Fatalf("expected first child to be tag node, got %+v", payload.Root.Children)
 	}
 }
 

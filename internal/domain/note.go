@@ -9,6 +9,7 @@ type Note struct {
 	Backlinks     []string
 	DanglingLinks []string
 	Tags          []string
+	Categories    []string
 }
 
 type GraphIndex struct {

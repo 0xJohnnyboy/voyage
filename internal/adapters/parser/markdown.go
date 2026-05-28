@@ -13,8 +13,9 @@ var wikilinkRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 type MarkdownParser struct{}
 
 type frontmatter struct {
-	Title string   `yaml:"title"`
-	Tags  []string `yaml:"tags"`
+	Title      string    `yaml:"title"`
+	Tags       yaml.Node `yaml:"tags"`
+	Categories yaml.Node `yaml:"categories"`
 }
 
 func (MarkdownParser) Parse(content []byte) (ports.ParsedNote, error) {
@@ -31,7 +32,8 @@ func (MarkdownParser) Parse(content []byte) (ports.ParsedNote, error) {
 				return parsed, err
 			}
 			parsed.Title = strings.TrimSpace(fm.Title)
-			parsed.Tags = fm.Tags
+			parsed.Tags = parseStringOrList(fm.Tags)
+			parsed.Categories = parseStringOrList(fm.Categories)
 			body = parts[1]
 		}
 	}
@@ -44,4 +46,28 @@ func (MarkdownParser) Parse(content []byte) (ports.ParsedNote, error) {
 	}
 
 	return parsed, nil
+}
+
+func parseStringOrList(node yaml.Node) []string {
+	out := []string{}
+	switch node.Kind {
+	case 0:
+		return out
+	case yaml.ScalarNode:
+		v := strings.TrimSpace(node.Value)
+		if v != "" {
+			out = append(out, v)
+		}
+	case yaml.SequenceNode:
+		for _, c := range node.Content {
+			if c.Kind != yaml.ScalarNode {
+				continue
+			}
+			v := strings.TrimSpace(c.Value)
+			if v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
