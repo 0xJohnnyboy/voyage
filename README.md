@@ -10,12 +10,13 @@ Relational navigation CLI for Markdown notes.
 vo [options] <path-note.md>
 ```
 
-Running `vo` without arguments shows help (`-h`) with the Voyage banner and current version.
+Running `vo` without arguments prints a short banner + version + compact usage. Use `-h` for full help with all options.
 
 Options:
 - `-v`, `--version` print version and exit
 - `-s`, `--sort` `discovery|alpha` (default: `discovery`)
 - `-f`, `--format` `simple|detailed|json` (default: `simple`)
+- `-m`, `--mode` `links|tags|categories` (default: `links`)
 - `-l`, `--long` alias for `--format detailed`
 - `-d`, `--dangling` show unresolved links (default: `true`)
 - `-D`, `--no-dangling` hide unresolved links
@@ -32,6 +33,8 @@ vo notes/index.md
 vo -s alpha notes/index.md
 vo -l -D notes/index.md
 vo --format detailed --dangling notes/index.md
+vo --mode tags notes/index.md
+vo --mode categories --tree --depth 1 notes/index.md
 vo -t -n 3 notes/index.md
 vo -t --long --no-dangling notes/index.md
 vo -t -n 3 --format json notes/index.md
@@ -51,18 +54,21 @@ Success payload:
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
+  "mode": "links",
   "root": {
     "id": "/abs/path/to/index.md",
     "label": "Home",
     "path": "/abs/path/to/index.md",
     "dangling": false,
+    "node_kind": "note",
     "children": [
       {
         "id": "/abs/path/to/a.md",
         "label": "A",
         "path": "/abs/path/to/a.md",
         "dangling": false,
+        "node_kind": "note",
         "children": []
       },
       {
@@ -70,6 +76,7 @@ Success payload:
         "label": "Missing Note",
         "path": "",
         "dangling": true,
+        "node_kind": "note",
         "children": []
       }
     ]
@@ -82,7 +89,13 @@ Node contract:
 - `label` display label
 - `path` absolute path for resolved notes, empty string for dangling
 - `dangling` boolean (`true` for unresolved wikilinks)
+- `node_kind` one of `note|tag|category`
 - `children` array of nodes
+
+When using `--mode tags` or `--mode categories` in tree mode:
+- root stays the target note
+- level alternates `note -> tag/category -> note`
+- `--depth 1` includes one semantic hop (`attribute + associated notes`)
 
 Error payload (`--format json`):
 
@@ -100,7 +113,7 @@ On error, Voyage returns a non-zero exit code.
 
 ## Install
 
-Latest release (current tag):
+Latest published release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/0xJohnnyboy/voyage/main/scripts/install.sh | sh
