@@ -13,7 +13,7 @@ _Plus loin que la nuit et le jour_
 
 `vo <note.md>` recursively scans the note's parent directory, builds an in-memory index, resolves wikilinks, and prints outgoing links for the target note.
 
-<img width="813" height="539" alt="image" src="https://github.com/user-attachments/assets/0516f944-f62c-473e-a71d-4858523a3ff6" />
+<img width="816" height="538" alt="image" src="https://github.com/user-attachments/assets/f7c9f32e-487b-4048-88ec-c96bd568dbdb" />
 
 
 # Install
