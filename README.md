@@ -1,10 +1,53 @@
-# Voyage
+```
+ _    __
+| |  / /___  __  ______ _____ ____
+| | / / __ \/ / / / __ `/ __ `/ _ \
+| |/ / /_/ / /_/ / /_/ / /_/ /  __/
+|___/\____/\__, /\__,_/\__, /\___/
+          /____/      /____/
+```
+_Plus loin que la nuit et le jour_
 
-Relational navigation CLI for Markdown notes.
+
+**Relational navigation CLI for Markdown notes.**
 
 `vo <note.md>` recursively scans the note's parent directory, builds an in-memory index, resolves wikilinks, and prints outgoing links for the target note.
 
-## Usage
+<img width="813" height="539" alt="image" src="https://github.com/user-attachments/assets/0516f944-f62c-473e-a71d-4858523a3ff6" />
+
+
+# Install
+
+Latest published release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xJohnnyboy/voyage/main/scripts/install.sh | sh
+```
+
+Pinned version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xJohnnyboy/voyage/main/scripts/install.sh | sh -s -- --version v0.1.0
+```
+
+Custom install dir:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xJohnnyboy/voyage/main/scripts/install.sh | sh -s -- --install-dir "$HOME/.local/bin"
+```
+
+The installer does not modify your shell profile automatically. If needed, it prints the exact
+`export PATH="<dir>:$PATH"` line to add.
+
+Uninstall:
+
+```bash
+rm -f /usr/local/bin/vo
+# or, if installed elsewhere:
+rm -f "$HOME/.local/bin/vo"
+```
+
+# Usage
 
 ```bash
 vo [options] <path-note.md>
@@ -26,7 +69,7 @@ Options:
 - `-c`, `--color` `auto|always|never` (default: `auto`)
 - `--format json` is valid only with `--tree`
 
-## Examples
+### Examples
 
 ```bash
 vo notes/index.md
@@ -41,8 +84,10 @@ vo -t -n 3 --format json notes/index.md
 vo --color always notes/index.md
 vo
 ```
+# Related
+[voyage.nvim](https://github.com/0xJohnnyboy/voyage.nvim) integrates a Telescope-like file picker with `vo` as a backend. For a lightweight zettelkasten-like note taking experience, try out [scretch.nvim](https://github.com/0xJohnnyboy/scretch.nvim).
 
-## JSON Tree Contract (V1)
+# JSON Tree Contract (V1)
 
 Machine-oriented JSON output is available for tree mode:
 
@@ -111,38 +156,7 @@ Error payload (`--format json`):
 
 On error, Voyage returns a non-zero exit code.
 
-## Install
-
-Latest published release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/0xJohnnyboy/voyage/main/scripts/install.sh | sh
-```
-
-Pinned version:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/0xJohnnyboy/voyage/main/scripts/install.sh | sh -s -- --version v0.1.0
-```
-
-Custom install dir:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/0xJohnnyboy/voyage/main/scripts/install.sh | sh -s -- --install-dir "$HOME/.local/bin"
-```
-
-The installer does not modify your shell profile automatically. If needed, it prints the exact
-`export PATH="<dir>:$PATH"` line to add.
-
-Uninstall:
-
-```bash
-rm -f /usr/local/bin/vo
-# or, if installed elsewhere:
-rm -f "$HOME/.local/bin/vo"
-```
-
-## Build and Versioning
+# Build and Versioning
 
 Build:
 
