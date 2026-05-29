@@ -55,6 +55,8 @@ vo [options] <path-note.md>
 
 Running `vo` without arguments prints a short banner + version + compact usage. Use `-h` for full help with all options.
 
+Example vault and commands: [example/README.md](example/README.md)
+
 Options:
 - `-v`, `--version` print version and exit
 - `-s`, `--sort` `discovery|alpha` (default: `discovery`)
@@ -88,6 +90,7 @@ vo -t --long --no-dangling notes/index.md
 vo -t -n 3 --format json notes/index.md
 vo --color always notes/index.md
 ```
+
 # Related
 [voyage.nvim](https://github.com/0xJohnnyboy/voyage.nvim) integrates a Telescope-like file picker with `vo` as a backend. For a lightweight zettelkasten-like note taking experience, try out [scretch.nvim](https://github.com/0xJohnnyboy/scretch.nvim).
 
