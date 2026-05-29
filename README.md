@@ -61,6 +61,7 @@ Options:
 - `-f`, `--format` `simple|detailed|json` (default: `simple`)
 - `-w`, `--show` `title|path` (default: `title`)
 - `-m`, `--mode` `links|tags|categories` (default: `links`)
+- `--scope` `up:N|root:<path>` (default: `up:0`)
 - `-l`, `--long` alias for `--format detailed`
 - `-d`, `--dangling` show unresolved links (default: `true`)
 - `-D`, `--no-dangling` hide unresolved links
@@ -78,6 +79,8 @@ vo -s alpha notes/index.md
 vo -l -D notes/index.md
 vo --format detailed --dangling notes/index.md
 vo --show path -D notes/index.md | xargs head -n 10
+vo --scope up:2 notes/deep/note.md
+vo --scope root:./notes notes/deep/note.md
 vo --mode tags notes/index.md
 vo --mode categories --tree --depth 1 notes/index.md
 vo -t -n 3 notes/index.md

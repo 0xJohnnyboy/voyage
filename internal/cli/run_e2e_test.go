@@ -437,6 +437,74 @@ func TestRunInvalidShowValue(t *testing.T) {
 	}
 }
 
+func TestRunScopeUpAndRoot(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("vault/index.md", "---\ntitle: Root\n---\n[[Parent Note]]")
+	write("vault/parent-note.md", "---\ntitle: Parent Note\n---\n")
+	write("vault/nested/leaf.md", "---\ntitle: Leaf\n---\n[[Parent Note]]")
+	target := filepath.Join(root, "vault", "nested", "leaf.md")
+
+	code, stdout, stderr := runAndCapture([]string{"--show", "path", target})
+	if code != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
+	}
+	if strings.Contains(stdout, "parent-note.md") {
+		t.Fatalf("did not expect parent relation with default scope up:0, got %q", stdout)
+	}
+
+	code, stdout, stderr = runAndCapture([]string{"--show", "path", "--scope", "up:1", target})
+	if code != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, filepath.Join(root, "vault", "parent-note.md")) {
+		t.Fatalf("expected parent relation with scope up:1, got %q", stdout)
+	}
+
+	relRoot := filepath.Join(root, "vault")
+	code, stdout, stderr = runAndCapture([]string{"--show", "path", "--scope", "root:" + relRoot, target})
+	if code != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, filepath.Join(root, "vault", "parent-note.md")) {
+		t.Fatalf("expected parent relation with root scope, got %q", stdout)
+	}
+}
+
+func TestRunScopeValidation(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "vault", "note.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := runAndCapture([]string{"--scope", "foo", target})
+	if code != 2 || !strings.Contains(stderr, "invalid --scope value") {
+		t.Fatalf("expected invalid scope format error, got code=%d stderr=%q", code, stderr)
+	}
+
+	outside := filepath.Join(root, "other")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr = runAndCapture([]string{"--scope", "root:" + outside, target})
+	if code != 2 || !strings.Contains(stderr, "target must be inside scope root") {
+		t.Fatalf("expected target-inside-root validation, got code=%d stderr=%q", code, stderr)
+	}
+}
+
 func runAndCapture(args []string) (int, string, string) {
 	origOut := os.Stdout
 	origErr := os.Stderr

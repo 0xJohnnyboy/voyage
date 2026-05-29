@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -53,6 +54,7 @@ type runConfig struct {
 	logLevel     string
 	treeView     bool
 	modeOpt      string
+	scopeOpt     string
 	depth        int
 	colorOpt     string
 	showVersion  bool
@@ -101,6 +103,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.logLevel, "log-level", "L", "warn", "log level: silent|warn|debug")
 	cmd.Flags().BoolVarP(&cfg.treeView, "tree", "t", false, "render relations as a tree")
 	cmd.Flags().StringVarP(&cfg.modeOpt, "mode", "m", "links", "relation mode: links|tags|categories")
+	cmd.Flags().StringVar(&cfg.scopeOpt, "scope", "up:0", "index scope: up:N|root:<path>")
 	cmd.Flags().IntVarP(&cfg.depth, "depth", "n", 1, "tree depth (>=1, tree mode only)")
 	cmd.Flags().StringVarP(&cfg.colorOpt, "color", "c", "auto", "color mode: auto|always|never")
 	cmd.Flags().BoolVarP(&cfg.showVersion, "version", "v", false, "print version")
@@ -127,7 +130,7 @@ func executeRun(cmd *cobra.Command, args []string, cfg *runConfig) error {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_depth", message: "--depth must be >= 1", exitCode: 2}
 	}
 	if len(args) != 1 {
-		return &runError{asJSON: false, code: "usage", message: "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>", exitCode: 2}
+		return &runError{asJSON: false, code: "usage", message: "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [--scope up:N|root:<path>] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>", exitCode: 2}
 	}
 	if cfg.sortOpt != "discovery" && cfg.sortOpt != "alpha" {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_sort", message: "invalid --sort value", exitCode: 2}
@@ -154,12 +157,15 @@ func executeRun(cmd *cobra.Command, args []string, cfg *runConfig) error {
 	if _, err := os.Stat(target); err != nil {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "target_not_found", message: err.Error(), exitCode: 2}
 	}
+	indexRoot, err := resolveIndexRoot(cfg.scopeOpt, target)
+	if err != nil {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_scope", message: err.Error(), exitCode: 2}
+	}
 
 	repo := fs.LocalRepo{}
 	log := logging.New(cfg.logLevel)
 	indexer := app.NewIndexer(repo, parser.MarkdownParser{}, log)
-	root := filepath.Dir(target)
-	idx, err := indexer.Build(root)
+	idx, err := indexer.Build(indexRoot)
 	if err != nil {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "index_build_failed", message: err.Error(), exitCode: 1}
 	}
@@ -229,7 +235,7 @@ func cliErr(asJSON bool, code, msg string, exitCode int) int {
 func printHelp() {
 	fmt.Fprint(os.Stderr, asciiBanner)
 	fmt.Fprintf(os.Stderr, "version %s\n\n", Version)
-	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
+	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [--scope up:N|root:<path>] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
 	fmt.Fprintln(os.Stderr)
 	printOptionHelp()
 }
@@ -248,6 +254,7 @@ func printOptionHelp() {
 		"  -f, --format                 output format: simple|detailed|json (default: simple)",
 		"  -w, --show                   display field: title|path (default: title)",
 		"  -m, --mode                   relation mode: links|tags|categories (default: links)",
+		"      --scope                  index scope: up:N|root:<path> (default: up:0)",
 		"  -l, --long                   alias for --format detailed",
 		"  -d, --dangling               show dangling links (default: true)",
 		"  -D, --no-dangling            hide dangling links",
@@ -273,4 +280,47 @@ func shouldUseColor(mode string) bool {
 		return false
 	}
 	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+func resolveIndexRoot(scope, target string) (string, error) {
+	s := strings.TrimSpace(scope)
+	if s == "" {
+		s = "up:0"
+	}
+	if strings.HasPrefix(s, "up:") {
+		nStr := strings.TrimSpace(strings.TrimPrefix(s, "up:"))
+		n, err := strconv.Atoi(nStr)
+		if err != nil || n < 0 {
+			return "", fmt.Errorf("invalid --scope value")
+		}
+		root := filepath.Dir(target)
+		for i := 0; i < n; i++ {
+			next := filepath.Dir(root)
+			if next == root {
+				break
+			}
+			root = next
+		}
+		return root, nil
+	}
+	if strings.HasPrefix(s, "root:") {
+		raw := strings.TrimSpace(strings.TrimPrefix(s, "root:"))
+		if raw == "" {
+			return "", fmt.Errorf("invalid --scope value")
+		}
+		root, err := filepath.Abs(raw)
+		if err != nil {
+			return "", fmt.Errorf("invalid --scope value")
+		}
+		targetAbs, err := filepath.Abs(target)
+		if err != nil {
+			return "", fmt.Errorf("invalid --scope value")
+		}
+		rel, err := filepath.Rel(root, targetAbs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("target must be inside scope root")
+		}
+		return filepath.Clean(root), nil
+	}
+	return "", fmt.Errorf("invalid --scope value")
 }
