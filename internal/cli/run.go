@@ -2,12 +2,12 @@ package cli
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"voyage/internal/adapters/fs"
 	"voyage/internal/adapters/logging"
 	"voyage/internal/adapters/output"
@@ -23,102 +23,143 @@ const (
 	asciiBanner        = "\n _    __\n| |  / /___  __  ______ _____ ____\n| | / / __ \\/ / / / __ `/ __ `/ _ \\\n| |/ / /_/ / /_/ / /_/ / /_/ /  __/\n|___/\\____/\\__, /\\__,_/\\__, /\\___/\n          /____/      /____/\n\n"
 )
 
+type jsonErrorPayload struct {
+	SchemaVersion string `json:"schema_version"`
+	Error         struct {
+		Code    string                 `json:"code"`
+		Message string                 `json:"message"`
+		Details map[string]interface{} `json:"details,omitempty"`
+	} `json:"error"`
+}
+
+type runError struct {
+	asJSON   bool
+	code     string
+	message  string
+	exitCode int
+}
+
+func (e *runError) Error() string {
+	return e.message
+}
+
+type runConfig struct {
+	sortOpt      string
+	formatOpt    string
+	longFormat   bool
+	showDangling bool
+	noDangling   bool
+	logLevel     string
+	treeView     bool
+	modeOpt      string
+	depth        int
+	colorOpt     string
+	showVersion  bool
+}
+
 func Run(args []string) int {
-	fsFlags := flag.NewFlagSet("vo", flag.ContinueOnError)
-	fsFlags.SetOutput(os.Stderr)
-	fsFlags.Usage = func() {
-		printHelp(fsFlags)
-	}
-	sortOpt := fsFlags.String("sort", "discovery", "sort order: discovery|alpha")
-	fsFlags.StringVar(sortOpt, "s", "discovery", "sort order: discovery|alpha")
-
-	formatOpt := fsFlags.String("format", "simple", "output format: simple|detailed|json")
-	fsFlags.StringVar(formatOpt, "f", "simple", "output format: simple|detailed|json")
-	longFormat := fsFlags.Bool("long", false, "alias for --format detailed")
-	fsFlags.BoolVar(longFormat, "l", false, "alias for --format detailed")
-
-	showDangling := fsFlags.Bool("dangling", true, "show dangling links")
-	fsFlags.BoolVar(showDangling, "d", true, "show dangling links")
-	noDangling := fsFlags.Bool("no-dangling", false, "hide dangling links")
-	fsFlags.BoolVar(noDangling, "D", false, "hide dangling links")
-
-	logLevel := fsFlags.String("log-level", "warn", "log level: silent|warn|debug")
-	fsFlags.StringVar(logLevel, "L", "warn", "log level: silent|warn|debug")
-	treeView := fsFlags.Bool("tree", false, "render relations as a tree")
-	fsFlags.BoolVar(treeView, "t", false, "render relations as a tree")
-	modeOpt := fsFlags.String("mode", "links", "relation mode: links|tags|categories")
-	fsFlags.StringVar(modeOpt, "m", "links", "relation mode: links|tags|categories")
-	depth := fsFlags.Int("depth", 1, "tree depth (>=1, tree mode only)")
-	fsFlags.IntVar(depth, "n", 1, "tree depth (>=1, tree mode only)")
-	colorOpt := fsFlags.String("color", "auto", "color mode: auto|always|never")
-	fsFlags.StringVar(colorOpt, "c", "auto", "color mode: auto|always|never")
-
-	showVersion := fsFlags.Bool("v", false, "print version")
-	fsFlags.BoolVar(showVersion, "version", false, "print version")
-
 	if len(args) == 0 {
 		printShortUsage()
 		return 0
 	}
-	if err := fsFlags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
+
+	cmd := newRootCmd()
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		if re, ok := err.(*runError); ok {
+			return cliErr(re.asJSON, re.code, re.message, re.exitCode)
 		}
-		return 2
+		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
-	if *showVersion {
+	return 0
+}
+
+func newRootCmd() *cobra.Command {
+	cfg := &runConfig{}
+
+	cmd := &cobra.Command{
+		Use:           "vo [options] <path-note.md>",
+		Short:         "Relational navigation CLI for Markdown notes",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return executeRun(cmd, args, cfg)
+		},
+	}
+	cmd.SetHelpFunc(func(_ *cobra.Command, _ []string) {
+		printHelp()
+	})
+
+	cmd.Flags().StringVarP(&cfg.sortOpt, "sort", "s", "discovery", "sort order: discovery|alpha")
+	cmd.Flags().StringVarP(&cfg.formatOpt, "format", "f", "simple", "output format: simple|detailed|json")
+	cmd.Flags().BoolVarP(&cfg.longFormat, "long", "l", false, "alias for --format detailed")
+	cmd.Flags().BoolVarP(&cfg.showDangling, "dangling", "d", true, "show dangling links")
+	cmd.Flags().BoolVarP(&cfg.noDangling, "no-dangling", "D", false, "hide dangling links")
+	cmd.Flags().StringVarP(&cfg.logLevel, "log-level", "L", "warn", "log level: silent|warn|debug")
+	cmd.Flags().BoolVarP(&cfg.treeView, "tree", "t", false, "render relations as a tree")
+	cmd.Flags().StringVarP(&cfg.modeOpt, "mode", "m", "links", "relation mode: links|tags|categories")
+	cmd.Flags().IntVarP(&cfg.depth, "depth", "n", 1, "tree depth (>=1, tree mode only)")
+	cmd.Flags().StringVarP(&cfg.colorOpt, "color", "c", "auto", "color mode: auto|always|never")
+	cmd.Flags().BoolVarP(&cfg.showVersion, "version", "v", false, "print version")
+
+	return cmd
+}
+
+func executeRun(cmd *cobra.Command, args []string, cfg *runConfig) error {
+	if cfg.showVersion {
 		fmt.Println(Version)
-		return 0
+		return nil
 	}
-	if *longFormat {
-		*formatOpt = "detailed"
+	if cfg.longFormat {
+		cfg.formatOpt = "detailed"
 	}
-	if *noDangling {
-		*showDangling = false
+	if cfg.noDangling {
+		cfg.showDangling = false
 	}
-	depthFlagSet := hasDepthFlag(args)
-	if depthFlagSet && !*treeView {
-		return cliErr(*formatOpt == "json", "depth_requires_tree", "--depth is only valid with --tree", 2)
+	depthFlagSet := cmd.Flags().Changed("depth")
+	if depthFlagSet && !cfg.treeView {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "depth_requires_tree", message: "--depth is only valid with --tree", exitCode: 2}
 	}
-	if *treeView && *depth < 1 {
-		return cliErr(*formatOpt == "json", "invalid_depth", "--depth must be >= 1", 2)
+	if cfg.treeView && cfg.depth < 1 {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_depth", message: "--depth must be >= 1", exitCode: 2}
 	}
-	if fsFlags.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>")
-		return 2
+	if len(args) != 1 {
+		return &runError{asJSON: false, code: "usage", message: "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>", exitCode: 2}
 	}
-	if *sortOpt != "discovery" && *sortOpt != "alpha" {
-		return cliErr(*formatOpt == "json", "invalid_sort", "invalid --sort value", 2)
+	if cfg.sortOpt != "discovery" && cfg.sortOpt != "alpha" {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_sort", message: "invalid --sort value", exitCode: 2}
 	}
-	if *modeOpt != "links" && *modeOpt != "tags" && *modeOpt != "categories" {
-		return cliErr(*formatOpt == "json", "invalid_mode", "invalid --mode value", 2)
+	if cfg.modeOpt != "links" && cfg.modeOpt != "tags" && cfg.modeOpt != "categories" {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_mode", message: "invalid --mode value", exitCode: 2}
 	}
-	if *formatOpt != "simple" && *formatOpt != "detailed" && *formatOpt != "json" {
-		return cliErr(*formatOpt == "json", "invalid_format", "invalid --format value", 2)
+	if cfg.formatOpt != "simple" && cfg.formatOpt != "detailed" && cfg.formatOpt != "json" {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_format", message: "invalid --format value", exitCode: 2}
 	}
-	if *formatOpt == "json" && !*treeView {
-		return cliErr(true, "json_requires_tree", "--format json is only valid with --tree", 2)
+	if cfg.formatOpt == "json" && !cfg.treeView {
+		return &runError{asJSON: true, code: "json_requires_tree", message: "--format json is only valid with --tree", exitCode: 2}
 	}
-	if *colorOpt != "auto" && *colorOpt != "always" && *colorOpt != "never" {
-		return cliErr(*formatOpt == "json", "invalid_color", "invalid --color value", 2)
+	if cfg.colorOpt != "auto" && cfg.colorOpt != "always" && cfg.colorOpt != "never" {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_color", message: "invalid --color value", exitCode: 2}
 	}
-	target := filepath.Clean(fsFlags.Arg(0))
+	target := filepath.Clean(args[0])
 	if !strings.EqualFold(filepath.Ext(target), ".md") {
-		return cliErr(*formatOpt == "json", "invalid_target_extension", "target must be a markdown file (.md)", 2)
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_target_extension", message: "target must be a markdown file (.md)", exitCode: 2}
 	}
 	if _, err := os.Stat(target); err != nil {
-		return cliErr(*formatOpt == "json", "target_not_found", err.Error(), 2)
+		return &runError{asJSON: cfg.formatOpt == "json", code: "target_not_found", message: err.Error(), exitCode: 2}
 	}
 
 	repo := fs.LocalRepo{}
-	log := logging.New(*logLevel)
+	log := logging.New(cfg.logLevel)
 	indexer := app.NewIndexer(repo, parser.MarkdownParser{}, log)
 	root := filepath.Dir(target)
 	idx, err := indexer.Build(root)
 	if err != nil {
-		return cliErr(*formatOpt == "json", "index_build_failed", err.Error(), 1)
+		return &runError{asJSON: cfg.formatOpt == "json", code: "index_build_failed", message: err.Error(), exitCode: 1}
 	}
-	useColor := shouldUseColor(*colorOpt)
+
+	useColor := shouldUseColor(cfg.colorOpt)
 	colorizeDangling := func(s string) string {
 		if !useColor {
 			return s
@@ -131,42 +172,35 @@ func Run(args []string) int {
 		}
 		return ansiColorCycleMark + s + ansiReset
 	}
+
 	query := app.NewQuery(repo, strategy.Outgoing{}, output.NewTextFormatter(output.TextFormatterConfig{
 		DanglingPrefix:   "⚠",
 		ColorizeDangling: colorizeDangling,
 	}))
 	opts := app.QueryOptions{
-		Sort:             *sortOpt,
-		ShowDangling:     *showDangling,
-		Detailed:         *formatOpt == "detailed",
-		Tree:             *treeView,
-		Depth:            *depth,
-		Mode:             *modeOpt,
+		Sort:             cfg.sortOpt,
+		ShowDangling:     cfg.showDangling,
+		Detailed:         cfg.formatOpt == "detailed",
+		Tree:             cfg.treeView,
+		Depth:            cfg.depth,
+		Mode:             cfg.modeOpt,
 		DanglingPrefix:   "⚠",
 		CycleMarker:      "↺",
 		ColorizeDangling: colorizeDangling,
 		ColorizeCycle:    colorizeCycle,
 	}
+
 	var out string
-	if *formatOpt == "json" {
+	if cfg.formatOpt == "json" {
 		out, err = query.RenderTreeJSON(idx, target, opts)
 	} else {
 		out, err = query.Render(idx, target, opts)
 	}
 	if err != nil {
-		return cliErr(*formatOpt == "json", "query_failed", err.Error(), 1)
+		return &runError{asJSON: cfg.formatOpt == "json", code: "query_failed", message: err.Error(), exitCode: 1}
 	}
 	fmt.Print(out)
-	return 0
-}
-
-type jsonErrorPayload struct {
-	SchemaVersion string `json:"schema_version"`
-	Error         struct {
-		Code    string                 `json:"code"`
-		Message string                 `json:"message"`
-		Details map[string]interface{} `json:"details,omitempty"`
-	} `json:"error"`
+	return nil
 }
 
 func cliErr(asJSON bool, code, msg string, exitCode int) int {
@@ -186,12 +220,12 @@ func cliErr(asJSON bool, code, msg string, exitCode int) int {
 	return exitCode
 }
 
-func printHelp(fsFlags *flag.FlagSet) {
+func printHelp() {
 	fmt.Fprint(os.Stderr, asciiBanner)
 	fmt.Fprintf(os.Stderr, "version %s\n\n", Version)
 	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
 	fmt.Fprintln(os.Stderr)
-	fsFlags.PrintDefaults()
+	printOptionHelp()
 }
 
 func printShortUsage() {
@@ -199,6 +233,25 @@ func printShortUsage() {
 	fmt.Fprintf(os.Stderr, "vo %s\n", Version)
 	fmt.Fprintln(os.Stderr, "usage: vo [options] <path-note.md>")
 	fmt.Fprintln(os.Stderr, "run `vo -h` for full help")
+}
+
+func printOptionHelp() {
+	lines := []string{
+		"  -v, --version                print version and exit",
+		"  -s, --sort                   sort order: discovery|alpha (default: discovery)",
+		"  -f, --format                 output format: simple|detailed|json (default: simple)",
+		"  -m, --mode                   relation mode: links|tags|categories (default: links)",
+		"  -l, --long                   alias for --format detailed",
+		"  -d, --dangling               show dangling links (default: true)",
+		"  -D, --no-dangling            hide dangling links",
+		"  -L, --log-level              log level: silent|warn|debug (default: warn)",
+		"  -t, --tree                   render relations as a tree",
+		"  -n, --depth                  tree depth (>=1, tree mode only, default: 1)",
+		"  -c, --color                  color mode: auto|always|never (default: auto)",
+	}
+	for _, line := range lines {
+		fmt.Fprintln(os.Stderr, line)
+	}
 }
 
 func shouldUseColor(mode string) bool {
@@ -213,13 +266,4 @@ func shouldUseColor(mode string) bool {
 		return false
 	}
 	return (info.Mode() & os.ModeCharDevice) != 0
-}
-
-func hasDepthFlag(args []string) bool {
-	for i := range args {
-		if args[i] == "--depth" || strings.HasPrefix(args[i], "--depth=") || args[i] == "-n" || strings.HasPrefix(args[i], "-n=") {
-			return true
-		}
-	}
-	return false
 }
