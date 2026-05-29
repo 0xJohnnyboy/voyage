@@ -103,7 +103,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.logLevel, "log-level", "L", "warn", "log level: silent|warn|debug")
 	cmd.Flags().BoolVarP(&cfg.treeView, "tree", "t", false, "render relations as a tree")
 	cmd.Flags().StringVarP(&cfg.modeOpt, "mode", "m", "links", "relation mode: links|tags|categories")
-	cmd.Flags().StringVar(&cfg.scopeOpt, "scope", "up:0", "index scope: up:N|root:<path>")
+	cmd.Flags().StringVarP(&cfg.scopeOpt, "scope", "p", "up:0", "index scope: up:N|root:<path>")
 	cmd.Flags().IntVarP(&cfg.depth, "depth", "n", 1, "tree depth (>=1, tree mode only)")
 	cmd.Flags().StringVarP(&cfg.colorOpt, "color", "c", "auto", "color mode: auto|always|never")
 	cmd.Flags().BoolVarP(&cfg.showVersion, "version", "v", false, "print version")
@@ -130,7 +130,7 @@ func executeRun(cmd *cobra.Command, args []string, cfg *runConfig) error {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_depth", message: "--depth must be >= 1", exitCode: 2}
 	}
 	if len(args) != 1 {
-		return &runError{asJSON: false, code: "usage", message: "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [--scope up:N|root:<path>] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>", exitCode: 2}
+		return &runError{asJSON: false, code: "usage", message: "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [-p|--scope up:N|root:<path>] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>", exitCode: 2}
 	}
 	if cfg.sortOpt != "discovery" && cfg.sortOpt != "alpha" {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_sort", message: "invalid --sort value", exitCode: 2}
@@ -235,7 +235,7 @@ func cliErr(asJSON bool, code, msg string, exitCode int) int {
 func printHelp() {
 	fmt.Fprint(os.Stderr, asciiBanner)
 	fmt.Fprintf(os.Stderr, "version %s\n\n", Version)
-	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [--scope up:N|root:<path>] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
+	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [-p|--scope up:N|root:<path>] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
 	fmt.Fprintln(os.Stderr)
 	printOptionHelp()
 }
@@ -254,7 +254,7 @@ func printOptionHelp() {
 		"  -f, --format                 output format: simple|detailed|json (default: simple)",
 		"  -w, --show                   display field: title|path (default: title)",
 		"  -m, --mode                   relation mode: links|tags|categories (default: links)",
-		"      --scope                  index scope: up:N|root:<path> (default: up:0)",
+		"  -p, --scope                  index scope: up:N|root:<path> (default: up:0)",
 		"  -l, --long                   alias for --format detailed",
 		"  -d, --dangling               show dangling links (default: true)",
 		"  -D, --no-dangling            hide dangling links",

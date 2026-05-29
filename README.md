@@ -63,7 +63,7 @@ Options:
 - `-f`, `--format` `simple|detailed|json` (default: `simple`)
 - `-w`, `--show` `title|path` (default: `title`)
 - `-m`, `--mode` `links|tags|categories` (default: `links`)
-- `--scope` `up:N|root:<path>` (default: `up:0`)
+- `-p`, `--scope` `up:N|root:<path>` (default: `up:0`)
 - `-l`, `--long` alias for `--format detailed`
 - `-d`, `--dangling` show unresolved links (default: `true`)
 - `-D`, `--no-dangling` hide unresolved links
