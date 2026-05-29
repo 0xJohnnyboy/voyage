@@ -59,6 +59,7 @@ Options:
 - `-v`, `--version` print version and exit
 - `-s`, `--sort` `discovery|alpha` (default: `discovery`)
 - `-f`, `--format` `simple|detailed|json` (default: `simple`)
+- `-w`, `--show` `title|path` (default: `title`)
 - `-m`, `--mode` `links|tags|categories` (default: `links`)
 - `-l`, `--long` alias for `--format detailed`
 - `-d`, `--dangling` show unresolved links (default: `true`)
@@ -76,13 +77,13 @@ vo notes/index.md
 vo -s alpha notes/index.md
 vo -l -D notes/index.md
 vo --format detailed --dangling notes/index.md
+vo --show path -D notes/index.md | xargs head -n 10
 vo --mode tags notes/index.md
 vo --mode categories --tree --depth 1 notes/index.md
 vo -t -n 3 notes/index.md
 vo -t --long --no-dangling notes/index.md
 vo -t -n 3 --format json notes/index.md
 vo --color always notes/index.md
-vo
 ```
 # Related
 [voyage.nvim](https://github.com/0xJohnnyboy/voyage.nvim) integrates a Telescope-like file picker with `vo` as a backend. For a lightweight zettelkasten-like note taking experience, try out [scretch.nvim](https://github.com/0xJohnnyboy/scretch.nvim).

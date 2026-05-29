@@ -22,6 +22,7 @@ type QueryOptions struct {
 	Sort             string
 	ShowDangling     bool
 	Detailed         bool
+	Show             string
 	Tree             bool
 	Depth            int
 	Mode             string
@@ -133,7 +134,7 @@ func (s QueryService) renderLinksFlat(note *domain.Note, index *domain.GraphInde
 		if err != nil {
 			return "", err
 		}
-		rendered = append(rendered, ports.RenderedRelation{Kind: "resolved", Title: noteLabel(rn), Path: rn.Path, Size: st.Size(), ModUnix: st.ModTimeUnix()})
+		rendered = append(rendered, ports.RenderedRelation{Kind: "resolved", Title: displayLabel(rn, opts), Path: rn.Path, Size: st.Size(), ModUnix: st.ModTimeUnix()})
 	}
 
 	if opts.Sort == "alpha" {
@@ -167,18 +168,18 @@ func (s QueryService) renderSemanticFlat(note *domain.Note, index *domain.GraphI
 				if err != nil {
 					return "", err
 				}
-				b.WriteString("  - " + humanSize(st.Size()) + "\t" + time.Unix(st.ModTimeUnix(), 0).Format(time.RFC3339) + "\t" + n.Path + "\t" + noteLabel(n) + "\n")
-			} else {
-				b.WriteString("  - " + noteLabel(n) + "\n")
+					b.WriteString("  - " + humanSize(st.Size()) + "\t" + time.Unix(st.ModTimeUnix(), 0).Format(time.RFC3339) + "\t" + n.Path + "\t" + displayLabel(n, opts) + "\n")
+				} else {
+					b.WriteString("  - " + displayLabel(n, opts) + "\n")
+				}
 			}
 		}
-	}
 	return b.String(), nil
 }
 
 func (s QueryService) renderLinksTree(root *domain.Note, index *domain.GraphIndex, opts QueryOptions) (string, error) {
 	var b strings.Builder
-	b.WriteString(noteLabel(root))
+	b.WriteString(displayLabel(root, opts))
 	b.WriteByte('\n')
 	visited := map[string]bool{root.ID: true}
 	if err := s.renderLinksTreeChildren(&b, root, index, opts, 1, "", visited); err != nil {
@@ -189,7 +190,7 @@ func (s QueryService) renderLinksTree(root *domain.Note, index *domain.GraphInde
 
 func (s QueryService) renderSemanticTree(root *domain.Note, index *domain.GraphIndex, opts QueryOptions, mode string) (string, error) {
 	var b strings.Builder
-	b.WriteString(noteLabel(root))
+	b.WriteString(displayLabel(root, opts))
 	b.WriteByte('\n')
 	visited := map[string]bool{root.ID: true}
 	if err := s.renderSemanticTreeNote(&b, root, index, opts, mode, opts.Depth, "", visited); err != nil {
@@ -228,13 +229,13 @@ func (s QueryService) renderSemanticTreeNote(b *strings.Builder, note *domain.No
 				noteBranch = "└── "
 				nextPrefix = termPrefix + "    "
 			}
-			line := noteLabel(child)
+			line := displayLabel(child, opts)
 			if opts.Detailed {
 				st, err := s.repo.Stat(child.Path)
 				if err != nil {
 					return err
 				}
-				line = humanSize(st.Size()) + "\t" + time.Unix(st.ModTimeUnix(), 0).Format(time.RFC3339) + "\t" + child.Path + "\t" + noteLabel(child)
+				line = humanSize(st.Size()) + "\t" + time.Unix(st.ModTimeUnix(), 0).Format(time.RFC3339) + "\t" + child.Path + "\t" + displayLabel(child, opts)
 			}
 				if visited[child.ID] {
 					b.WriteString(termPrefix + noteBranch + line + " " + renderCycle(opts) + "\n")
@@ -353,7 +354,7 @@ func (s QueryService) renderLinksTreeChildren(b *strings.Builder, parent *domain
 		if err != nil {
 			return err
 		}
-		children = append(children, ports.RenderedRelation{Kind: "resolved", Title: noteLabel(n), Path: n.Path, Size: st.Size(), ModUnix: st.ModTimeUnix(), Raw: r.ID})
+		children = append(children, ports.RenderedRelation{Kind: "resolved", Title: displayLabel(n, opts), Path: n.Path, Size: st.Size(), ModUnix: st.ModTimeUnix(), Raw: r.ID})
 	}
 
 	if opts.Sort == "alpha" {
@@ -450,6 +451,13 @@ func noteLabel(n *domain.Note) string {
 		return n.Title
 	}
 	return strings.TrimSuffix(filepath.Base(n.Path), filepath.Ext(n.Path))
+}
+
+func displayLabel(n *domain.Note, opts QueryOptions) string {
+	if opts.Show == "path" {
+		return n.Path
+	}
+	return noteLabel(n)
 }
 
 func humanSize(size int64) string {

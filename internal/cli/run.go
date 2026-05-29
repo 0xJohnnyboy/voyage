@@ -46,6 +46,7 @@ func (e *runError) Error() string {
 type runConfig struct {
 	sortOpt      string
 	formatOpt    string
+	showOpt      string
 	longFormat   bool
 	showDangling bool
 	noDangling   bool
@@ -93,6 +94,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&cfg.sortOpt, "sort", "s", "discovery", "sort order: discovery|alpha")
 	cmd.Flags().StringVarP(&cfg.formatOpt, "format", "f", "simple", "output format: simple|detailed|json")
+	cmd.Flags().StringVarP(&cfg.showOpt, "show", "w", "title", "display field: title|path")
 	cmd.Flags().BoolVarP(&cfg.longFormat, "long", "l", false, "alias for --format detailed")
 	cmd.Flags().BoolVarP(&cfg.showDangling, "dangling", "d", true, "show dangling links")
 	cmd.Flags().BoolVarP(&cfg.noDangling, "no-dangling", "D", false, "hide dangling links")
@@ -125,7 +127,7 @@ func executeRun(cmd *cobra.Command, args []string, cfg *runConfig) error {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_depth", message: "--depth must be >= 1", exitCode: 2}
 	}
 	if len(args) != 1 {
-		return &runError{asJSON: false, code: "usage", message: "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>", exitCode: 2}
+		return &runError{asJSON: false, code: "usage", message: "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-v|--version] <path-note>", exitCode: 2}
 	}
 	if cfg.sortOpt != "discovery" && cfg.sortOpt != "alpha" {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_sort", message: "invalid --sort value", exitCode: 2}
@@ -135,6 +137,9 @@ func executeRun(cmd *cobra.Command, args []string, cfg *runConfig) error {
 	}
 	if cfg.formatOpt != "simple" && cfg.formatOpt != "detailed" && cfg.formatOpt != "json" {
 		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_format", message: "invalid --format value", exitCode: 2}
+	}
+	if cfg.showOpt != "title" && cfg.showOpt != "path" {
+		return &runError{asJSON: cfg.formatOpt == "json", code: "invalid_show", message: "invalid --show value", exitCode: 2}
 	}
 	if cfg.formatOpt == "json" && !cfg.treeView {
 		return &runError{asJSON: true, code: "json_requires_tree", message: "--format json is only valid with --tree", exitCode: 2}
@@ -181,6 +186,7 @@ func executeRun(cmd *cobra.Command, args []string, cfg *runConfig) error {
 		Sort:             cfg.sortOpt,
 		ShowDangling:     cfg.showDangling,
 		Detailed:         cfg.formatOpt == "detailed",
+		Show:             cfg.showOpt,
 		Tree:             cfg.treeView,
 		Depth:            cfg.depth,
 		Mode:             cfg.modeOpt,
@@ -223,7 +229,7 @@ func cliErr(asJSON bool, code, msg string, exitCode int) int {
 func printHelp() {
 	fmt.Fprint(os.Stderr, asciiBanner)
 	fmt.Fprintf(os.Stderr, "version %s\n\n", Version)
-	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
+	fmt.Fprintln(os.Stderr, "usage: vo [-s|--sort discovery|alpha] [-f|--format simple|detailed|json] [-w|--show title|path] [-m|--mode links|tags|categories] [-l|--long] [-t|--tree] [-n|--depth N] [-d|--dangling] [-D|--no-dangling] [-L|--log-level silent|warn|debug] [-c|--color auto|always|never] [-v|--version] <path-note>")
 	fmt.Fprintln(os.Stderr)
 	printOptionHelp()
 }
@@ -240,6 +246,7 @@ func printOptionHelp() {
 		"  -v, --version                print version and exit",
 		"  -s, --sort                   sort order: discovery|alpha (default: discovery)",
 		"  -f, --format                 output format: simple|detailed|json (default: simple)",
+		"  -w, --show                   display field: title|path (default: title)",
 		"  -m, --mode                   relation mode: links|tags|categories (default: links)",
 		"  -l, --long                   alias for --format detailed",
 		"  -d, --dangling               show dangling links (default: true)",

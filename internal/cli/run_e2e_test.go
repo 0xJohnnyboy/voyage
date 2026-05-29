@@ -390,6 +390,53 @@ func TestRunTreeJSONErrorsStructured(t *testing.T) {
 	}
 }
 
+func TestRunShowPathInFlatAndTree(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("vault/index.md", "[[Child]]")
+	write("vault/child.md", "---\ntitle: Child Title\n---\n")
+	target := filepath.Join(root, "vault", "index.md")
+	childPath := filepath.Join(root, "vault", "child.md")
+
+	code, stdout, stderr := runAndCapture([]string{"--show", "path", target})
+	if code != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, childPath) || strings.Contains(stdout, "Child Title") {
+		t.Fatalf("expected flat output to show path only, got %q", stdout)
+	}
+
+	code, stdout, stderr = runAndCapture([]string{"--tree", "--show", "path", target})
+	if code != 0 {
+		t.Fatalf("expected exit=0 got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, target) || !strings.Contains(stdout, childPath) || strings.Contains(stdout, "Child Title") {
+		t.Fatalf("expected tree output to show paths, got %q", stdout)
+	}
+}
+
+func TestRunInvalidShowValue(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "index.md")
+	if err := os.WriteFile(target, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := runAndCapture([]string{"--show", "both", target})
+	if code != 2 || !strings.Contains(stderr, "invalid --show value") {
+		t.Fatalf("expected invalid --show error, got code=%d stderr=%q", code, stderr)
+	}
+}
+
 func runAndCapture(args []string) (int, string, string) {
 	origOut := os.Stdout
 	origErr := os.Stderr
